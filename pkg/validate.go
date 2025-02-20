@@ -14,8 +14,10 @@ import (
 
 // Validator type
 type Validator struct {
-	schema   *XSDSchema
-	patterns *PatternCache
+	schema     *XSDSchema
+	patterns   *PatternCache
+	namespaces map[string]string
+	defaultNS  string
 }
 
 func NewValidator(xsdFile io.Reader) (*Validator, error) {
@@ -24,9 +26,12 @@ func NewValidator(xsdFile io.Reader) (*Validator, error) {
 	if err := decoder.Decode(schema); err != nil {
 		return nil, fmt.Errorf("failed to parse XSD: %v", err)
 	}
+
 	return &Validator{
-		schema:   schema,
-		patterns: NewPatternCache(),
+		schema:     schema,
+		patterns:   NewPatternCache(),
+		namespaces: make(map[string]string),
+		defaultNS:  schema.TargetNS,
 	}, nil
 }
 
@@ -37,125 +42,252 @@ func (v *Validator) Validate(xmlFile io.Reader) (*ValidationResult, error) {
 		return nil, fmt.Errorf("failed to parse XML: %v", err)
 	}
 
-	rootXsd := v.findSchemaElement(xmlNode.Name, v.schema.Elements)
+	rootXsd := v.findSchemaElementNS(xmlNode.Name, xmlNode.Namespace, v.schema.Elements)
 	if rootXsd == nil {
-		return nil, fmt.Errorf("root element '%s' not defined in schema", xmlNode.Name)
+		return nil, fmt.Errorf("root element '{%s}%s' not defined in schema", xmlNode.Namespace, xmlNode.Name)
 	}
 
-	errors := v.validateNodeRecursive(xmlNode, *rootXsd)
+	result := &ValidationResult{
+		Valid:    true,
+		Filename: xmlNode.Name,
+		Errors:   v.validateElement(xmlNode, *rootXsd),
+	}
 
-	result := &ValidationResult{Valid: true, Filename: xmlNode.Name}
-	if len(errors) > 0 {
+	if len(result.Errors) > 0 {
 		result.Valid = false
-		result.Errors = errors
 	}
+
 	return result, nil
 }
 
-// validateNodeRecursive validates an XML node against its corresponding XSD element recursively.
-func (v *Validator) validateNodeRecursive(xmlNode *XMLNode, xsdElem XSDElement) []string {
+func (v *Validator) validateElement(xmlNode *XMLNode, xsdElem XSDElement) []string {
 	var errors []string
 
+	if xsdElem.Ref != "" {
+		refElement, err := v.resolveElementRef(xsdElem.Ref)
+		if err != nil {
+			return append(errors, err.Error())
+		}
+		return v.validateElement(xmlNode, *refElement)
+	}
+
+	// Validate element name and namespace
+	if !v.validateElementNameAndNS(xmlNode, xsdElem) {
+		errors = append(errors, fmt.Sprintf("element name or namespace mismatch: expected '{%s}%s', got '{%s}%s'",
+			xsdElem.Namespace, xsdElem.Name, xmlNode.Namespace, xmlNode.Name))
+		return errors
+	}
+
+	// Resolve complex type if referenced by name
 	if xsdElem.ComplexType == nil && xsdElem.Type != "" {
 		if ct := v.findComplexType(xsdElem.Type); ct != nil {
 			xsdElem.ComplexType = ct
 		}
 	}
 
-	// Check that the element name matches the expected name.
-	if xmlNode.Name != xsdElem.Name {
-		errors = append(errors, fmt.Sprintf("element name mismatch: expected '%s', got '%s'", xsdElem.Name, xmlNode.Name))
-	}
-
-	// Validate attributes if a complex type is present.
+	// Validate attributes
 	if xsdElem.ComplexType != nil {
 		errors = append(errors, v.validateAttributes(xmlNode.Attributes, xsdElem.ComplexType.Attributes)...)
 	}
 
-	// Validate content if the element is simple or has a simple type.
-	if xmlNode.Content != "" && (xsdElem.SimpleType != nil || xsdElem.Type != "") {
+	// Validate content
+	if xmlNode.Content != "" {
 		if err := v.validateElementContent(xmlNode.Content, &xsdElem); err != nil {
 			errors = append(errors, fmt.Sprintf("invalid content in element '%s': %v", xmlNode.Name, err))
 		}
 	}
 
-	// If the element has a complex type with a sequence, validate its children.
-	if xsdElem.ComplexType != nil && xsdElem.ComplexType.Sequence != nil {
-		// Build a map of expected children.
-		expectedChildren := make(map[string]XSDElement)
-		for _, childDef := range xsdElem.ComplexType.Sequence.Elements {
-			expectedChildren[childDef.Name] = childDef
+	// Validate children based on complex type
+	if xsdElem.ComplexType != nil {
+		if xsdElem.ComplexType.Sequence != nil {
+			errors = append(errors, v.validateSequence(xmlNode.Children, xsdElem.ComplexType.Sequence)...)
 		}
-
-		// Count occurrences of each expected child in the XML.
-		counts := make(map[string]int)
-		for _, child := range xmlNode.Children {
-			counts[child.Name]++
-		}
-
-		// Check occurrence constraints.
-		for _, childDef := range xsdElem.ComplexType.Sequence.Elements {
-			minOccurs := 1
-			if childDef.MinOccurs != "" {
-				if val, err := strconv.Atoi(childDef.MinOccurs); err == nil {
-					minOccurs = val
-				}
-			}
-			maxOccurs := 1
-			if childDef.MaxOccurs != "" {
-				if childDef.MaxOccurs == "unbounded" {
-					maxOccurs = math.MaxInt32
-				} else if val, err := strconv.Atoi(childDef.MaxOccurs); err == nil {
-					maxOccurs = val
-				}
-			}
-			count := counts[childDef.Name]
-			if count < minOccurs {
-				errors = append(errors, fmt.Sprintf("element '%s' occurs %d times, minimum required is %d", childDef.Name, count, minOccurs))
-			}
-			if count > maxOccurs {
-				errors = append(errors, fmt.Sprintf("element '%s' occurs %d times, maximum allowed is %d", childDef.Name, count, maxOccurs))
-			}
-		}
-
-		// Recursively validate each child.
-		for _, child := range xmlNode.Children {
-			if childDef, ok := expectedChildren[child.Name]; ok {
-				errors = append(errors, v.validateNodeRecursive(child, childDef)...)
-			} else {
-				errors = append(errors, fmt.Sprintf("unexpected element '%s' in '%s'", child.Name, xmlNode.Name))
-			}
+		if xsdElem.ComplexType.Choice != nil {
+			errors = append(errors, v.validateChoice(xmlNode.Children, xsdElem.ComplexType.Choice)...)
 		}
 	}
 
 	return errors
 }
 
-// Node validation
-func (v *Validator) validateNode(node interface{}, schema *XSDSchema) []string {
+func (v *Validator) validateChoice(children []*XMLNode, choice *XSDChoice) []string {
 	var errors []string
-	xmlNode, ok := node.(XMLNode)
-	if !ok {
-		return append(errors, "invalid XML node structure")
+
+	// Get occurrence constraints
+	minOccurs := 1
+	if choice.MinOccurs != "" {
+		if val, err := strconv.Atoi(choice.MinOccurs); err == nil {
+			minOccurs = val
+		}
 	}
 
-	schemaElement := v.findSchemaElement(xmlNode.Name, schema.Elements)
-	if schemaElement == nil {
-		return append(errors, fmt.Sprintf("element '%s' not defined in schema", xmlNode.Name))
+	maxOccurs := 1
+	if choice.MaxOccurs != "" {
+		if choice.MaxOccurs == "unbounded" {
+			maxOccurs = math.MaxInt32
+		} else if val, err := strconv.Atoi(choice.MaxOccurs); err == nil {
+			maxOccurs = val
+		}
 	}
 
-	// Validate element structure
-	structureErrors := v.validateElementStructure(xmlNode, schemaElement)
-	errors = append(errors, structureErrors...)
+	if choice.Choice != nil {
+		errors = append(errors, v.validateChoice(children, choice.Choice)...)
+	}
 
-	// Validate content
-	if xmlNode.Content != "" {
-		if err := v.validateElementContent(xmlNode.Content, schemaElement); err != nil {
-			errors = append(errors, fmt.Sprintf("invalid content for element '%s': %v", xmlNode.Name, err))
+	// Track which choice elements were found
+	validChoices := 0
+	if choice.Elements != nil {
+		for _, child := range children {
+			found := false
+			for _, choiceElem := range choice.Elements {
+				var elemToValidate XSDElement
+				if choiceElem.Ref != "" {
+					refElement, err := v.resolveElementRef(choiceElem.Ref)
+					if err != nil {
+						errors = append(errors, err.Error())
+						continue
+					}
+					elemToValidate = *refElement
+				} else {
+					elemToValidate = choiceElem
+				}
+
+				if v.validateElementNameAndNS(child, elemToValidate) {
+					found = true
+					validChoices++
+					errors = append(errors, v.validateElement(child, elemToValidate)...)
+					break
+				}
+			}
+			if !found {
+				errors = append(errors, fmt.Sprintf("element '%s' is not a valid choice", child.Name))
+			}
+		}
+	}
+
+	// Validate occurrence constraints
+	if validChoices < minOccurs {
+		errors = append(errors, fmt.Sprintf("choice group occurs %d times, minimum required is %d",
+			validChoices, minOccurs))
+	}
+	if validChoices > maxOccurs {
+		errors = append(errors, fmt.Sprintf("choice group occurs %d times, maximum allowed is %d",
+			validChoices, maxOccurs))
+	}
+
+	return errors
+}
+
+func (v *Validator) validateSequence(children []*XMLNode, sequence *XSDSequence) []string {
+	var errors []string
+	expectedChildren := make(map[string]XSDElement)
+	counts := make(map[string]int)
+
+	for _, childDef := range sequence.Elements {
+		expectedChildren[childDef.Name] = childDef
+	}
+
+	for _, child := range children {
+		if childDef, ok := expectedChildren[child.Name]; ok {
+			counts[child.Name]++
+			errors = append(errors, v.validateElement(child, childDef)...)
+		} else {
+			errors = append(errors, fmt.Sprintf("unexpected element '%s'", child.Name))
+		}
+	}
+
+	// Validate sequence occurrence constraints
+	for _, childDef := range sequence.Elements {
+		minOccurs := 1
+		if childDef.MinOccurs != "" {
+			if val, err := strconv.Atoi(childDef.MinOccurs); err == nil {
+				minOccurs = val
+			}
+		}
+
+		maxOccurs := 1
+		if childDef.MaxOccurs != "" {
+			if childDef.MaxOccurs == "unbounded" {
+				maxOccurs = math.MaxInt32
+			} else if val, err := strconv.Atoi(childDef.MaxOccurs); err == nil {
+				maxOccurs = val
+			}
+		}
+
+		count := counts[childDef.Name]
+		if count < minOccurs {
+			errors = append(errors, fmt.Sprintf("element '%s' occurs %d times, minimum required is %d",
+				childDef.Name, count, minOccurs))
+		}
+		if count > maxOccurs {
+			errors = append(errors, fmt.Sprintf("element '%s' occurs %d times, maximum allowed is %d",
+				childDef.Name, count, maxOccurs))
 		}
 	}
 
 	return errors
+}
+
+func (v *Validator) validateElementNameAndNS(xmlNode *XMLNode, xsdElem XSDElement) bool {
+	if xmlNode.Name != xsdElem.Name {
+		return false
+	}
+
+	// Handle namespace validation
+	schemaNamespace := xsdElem.Namespace
+	if schemaNamespace == "" {
+		schemaNamespace = v.schema.TargetNS
+	}
+
+	// For qualified elements
+	if v.schema.ElementFormDefault == "qualified" {
+		if schemaNamespace == "" {
+			return xmlNode.Namespace == ""
+		}
+		return xmlNode.Namespace == schemaNamespace
+	}
+
+	// For unqualified elements
+	return true
+}
+
+func (v *Validator) findSchemaElementNS(name, namespace string, elements []XSDElement) *XSDElement {
+	for i, elem := range elements {
+		elemNS := elem.Namespace
+		if elemNS == "" {
+			elemNS = v.schema.TargetNS
+		}
+
+		if elem.Name == name {
+			// Match if:
+			// 1. Namespaces are exactly equal, or
+			// 2. Element is unqualified and we're matching against target namespace
+			if elemNS == namespace ||
+				(v.schema.ElementFormDefault != "qualified" && namespace == v.schema.TargetNS) {
+				return &elements[i]
+			}
+		}
+	}
+	return nil
+}
+
+func (v *Validator) resolveElementRef(ref string) (*XSDElement, error) {
+	// Handle namespace prefix in ref
+	parts := strings.Split(ref, ":")
+	var localName string
+	if len(parts) > 1 {
+		localName = parts[1]
+	} else {
+		localName = parts[0]
+	}
+
+	// Search in schema elements
+	for _, elem := range v.schema.Elements {
+		if elem.Name == localName {
+			return &elem, nil
+		}
+	}
+	return nil, fmt.Errorf("referenced element not found: %s", ref)
 }
 
 // Extended type validation functions
@@ -203,6 +335,10 @@ func (v *Validator) validateBaseType(value string, typeName string) error {
 	case "xs:double", "double":
 		if _, err := strconv.ParseFloat(value, 64); err != nil {
 			return fmt.Errorf("invalid double value: %s", value)
+		}
+	case "xs:long", "long":
+		if _, err := strconv.ParseInt(value, 10, 64); err != nil {
+			return fmt.Errorf("invalid long value: %s", value)
 		}
 	case "xs:boolean", "boolean":
 		if value != "true" && value != "false" && value != "1" && value != "0" {
@@ -261,24 +397,24 @@ func (v *Validator) validateBaseType(value string, typeName string) error {
 
 func (v *Validator) validateRestrictions(value string, baseType string, restrictions *XSDRestriction) error {
 	// Length restrictions
-	if restrictions.Length != "" {
-		length, _ := strconv.Atoi(restrictions.Length)
+	if restrictions.Length.Value != "" {
+		length, _ := strconv.Atoi(restrictions.Length.Value)
 		actualLen := utf8.RuneCountInString(value)
 		if actualLen != length {
 			return fmt.Errorf("length must be exactly %d, got %d", length, actualLen)
 		}
 	}
 
-	if restrictions.MinLength != "" {
-		minLength, _ := strconv.Atoi(restrictions.MinLength)
+	if restrictions.MinLength.Value != "" {
+		minLength, _ := strconv.Atoi(restrictions.MinLength.Value)
 		actualLen := utf8.RuneCountInString(value)
 		if actualLen < minLength {
 			return fmt.Errorf("length must be at least %d, got %d", minLength, actualLen)
 		}
 	}
 
-	if restrictions.MaxLength != "" {
-		maxLength, _ := strconv.Atoi(restrictions.MaxLength)
+	if restrictions.MaxLength.Value != "" {
+		maxLength, _ := strconv.Atoi(restrictions.MaxLength.Value)
 		actualLen := utf8.RuneCountInString(value)
 		if actualLen > maxLength {
 			return fmt.Errorf("length must be at most %d, got %d", maxLength, actualLen)
@@ -290,29 +426,29 @@ func (v *Validator) validateRestrictions(value string, baseType string, restrict
 	case "xs:decimal", "xs:integer", "xs:float", "xs:double":
 		num, _ := strconv.ParseFloat(value, 64)
 
-		if restrictions.MinInclusive != "" {
-			minInclusive, err := strconv.ParseFloat(restrictions.MinInclusive, 64)
+		if restrictions.MinInclusive.Value != "" {
+			minInclusive, err := strconv.ParseFloat(restrictions.MinInclusive.Value, 64)
 			if err == nil && num < minInclusive {
 				return fmt.Errorf("value must be >= %v, got %v", minInclusive, num)
 			}
 		}
 
-		if restrictions.MaxInclusive != "" {
-			maxInclusive, err := strconv.ParseFloat(restrictions.MaxInclusive, 64)
+		if restrictions.MaxInclusive.Value != "" {
+			maxInclusive, err := strconv.ParseFloat(restrictions.MaxInclusive.Value, 64)
 			if err == nil && num > maxInclusive {
 				return fmt.Errorf("value must be <= %v, got %v", maxInclusive, num)
 			}
 		}
 
-		if restrictions.MinExclusive != "" {
-			minExclusive, err := strconv.ParseFloat(restrictions.MinExclusive, 64)
+		if restrictions.MinExclusive.Value != "" {
+			minExclusive, err := strconv.ParseFloat(restrictions.MinExclusive.Value, 64)
 			if err == nil && num <= minExclusive {
 				return fmt.Errorf("value must be > %v, got %v", minExclusive, num)
 			}
 		}
 
-		if restrictions.MaxExclusive != "" {
-			maxExclusive, err := strconv.ParseFloat(restrictions.MaxExclusive, 64)
+		if restrictions.MaxExclusive.Value != "" {
+			maxExclusive, err := strconv.ParseFloat(restrictions.MaxExclusive.Value, 64)
 			if err == nil && num >= maxExclusive {
 				return fmt.Errorf("value must be < %v, got %v", maxExclusive, num)
 			}
@@ -364,28 +500,6 @@ func (v *Validator) findSchemaElement(name string, elements []XSDElement) *XSDEl
 		}
 	}
 	return nil
-}
-
-// Element structure validation
-func (v *Validator) validateElementStructure(node XMLNode, schemaElement *XSDElement) []string {
-	var errors []string
-
-	if node.Name != schemaElement.Name {
-		errors = append(errors, fmt.Sprintf("element name mismatch: expected '%s', got '%s'",
-			schemaElement.Name, node.Name))
-	}
-
-	if schemaElement.ComplexType != nil {
-		attrErrors := v.validateAttributes(node.Attributes, schemaElement.ComplexType.Attributes)
-		errors = append(errors, attrErrors...)
-
-		if schemaElement.ComplexType.Sequence != nil {
-			childErrors := v.validateChildElements(node.Children, schemaElement.ComplexType.Sequence)
-			errors = append(errors, childErrors...)
-		}
-	}
-
-	return errors
 }
 
 func (v *Validator) validateAttributes(nodeAttrs map[string]string, schemaAttrs []XSDAttribute) []string {
@@ -449,62 +563,6 @@ func (v *Validator) validateElementContent(content string, element *XSDElement) 
 	return nil
 }
 
-func (v *Validator) validateChildElements(children []*XMLNode, sequence *XSDSequence) []string {
-	var errors []string
-
-	// Create a map to track occurrence counts
-	occurrences := make(map[string]int)
-
-	// Create a map to track defined elements in the schema
-	definedElements := make(map[string]bool)
-	for _, seqElement := range sequence.Elements {
-		definedElements[seqElement.Name] = true
-	}
-
-	// Count occurrences of each child element and check if they are defined
-	for _, child := range children {
-		occurrences[child.Name]++
-
-		// Check if the child element is defined in the schema
-		if !definedElements[child.Name] {
-			errors = append(errors, fmt.Sprintf("unexpected element '%s'", child.Name))
-		}
-	}
-
-	// Validate against sequence definition
-	for _, seqElement := range sequence.Elements {
-		count := occurrences[seqElement.Name]
-
-		// Parse minOccurs (default is 1 if not specified)
-		minOccurs := 1
-		if seqElement.MinOccurs != "" {
-			minOccurs, _ = strconv.Atoi(seqElement.MinOccurs)
-		}
-
-		// Parse maxOccurs (default is 1 if not specified)
-		maxOccurs := 1
-		if seqElement.MaxOccurs == "unbounded" {
-			maxOccurs = math.MaxInt32
-		} else if seqElement.MaxOccurs != "" {
-			maxOccurs, _ = strconv.Atoi(seqElement.MaxOccurs)
-		}
-
-		// Validate occurrence constraints
-		if count < minOccurs {
-			errors = append(errors, fmt.Sprintf(
-				"element '%s' occurs %d times, minimum required is %d",
-				seqElement.Name, count, minOccurs))
-		}
-		if count > maxOccurs {
-			errors = append(errors, fmt.Sprintf(
-				"element '%s' occurs %d times, maximum allowed is %d",
-				seqElement.Name, count, maxOccurs))
-		}
-	}
-
-	return errors
-}
-
 func (v *Validator) findSimpleType(name string) *XSDSimpleType {
 	for i, st := range v.schema.SimpleTypes {
 		if st.Name == name {
@@ -520,20 +578,6 @@ func (v *Validator) findComplexType(name string) *XSDComplexType {
 			return &v.schema.ComplexTypes[i]
 		}
 	}
-	return nil
-}
-
-// Enhanced pattern matching with XSD-specific features
-func (v *Validator) validatePattern(value string, pattern XSDPattern) error {
-	compiledPattern, err := v.patterns.GetPattern(pattern.Value)
-	if err != nil {
-		return fmt.Errorf("invalid pattern: %v", err)
-	}
-
-	if !compiledPattern.MatchString(value) {
-		return fmt.Errorf("value does not match pattern '%s'", pattern.Value)
-	}
-
 	return nil
 }
 

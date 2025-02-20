@@ -9,17 +9,23 @@ import (
 
 // XML node representation
 type XMLNode struct {
-	Name       string
-	Attributes map[string]string
-	Content    string
-	Children   []*XMLNode
+	Name           string
+	Namespace      string
+	Prefix         string
+	Attributes     map[string]string
+	Content        string
+	Children       []*XMLNode
+	NamespaceDecls map[string]string
 }
 
 // ParseXML parses XML document and returns XMLNode
 func ParseXML(r io.Reader) (*XMLNode, error) {
 	decoder := xml.NewDecoder(r)
-	var root *XMLNode
 	var stack []*XMLNode
+	var root *XMLNode
+
+	// Track namespaces at each level
+	nsStack := []map[string]string{{}}
 
 	for {
 		token, err := decoder.Token()
@@ -27,40 +33,85 @@ func ParseXML(r io.Reader) (*XMLNode, error) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("error reading XML: %v", err)
+			return nil, err
 		}
+
 		switch t := token.(type) {
 		case xml.StartElement:
-			node := &XMLNode{
-				Name:       t.Name.Local,
-				Attributes: make(map[string]string),
+			// Create new namespace context for this element
+			currentNS := make(map[string]string)
+			for prefix, uri := range nsStack[len(nsStack)-1] {
+				currentNS[prefix] = uri
 			}
+
+			// Process namespace declarations
 			for _, attr := range t.Attr {
-				node.Attributes[attr.Name.Local] = attr.Value
+				if attr.Name.Space == "xmlns" {
+					currentNS[attr.Name.Local] = attr.Value
+				} else if attr.Name.Local == "xmlns" {
+					currentNS[""] = attr.Value
+				}
 			}
-			if root == nil {
-				root = node
+			nsStack = append(nsStack, currentNS)
+
+			// Resolve element namespace
+			namespace := t.Name.Space
+			if namespace == "" {
+				// Check for default namespace
+				if defaultNS, ok := currentNS[""]; ok {
+					namespace = defaultNS
+				}
 			} else {
-				// Append the new node as a child of the last node in the stack.
+				// Resolve prefixed namespace
+				if uri, ok := currentNS[namespace]; ok {
+					namespace = uri
+				}
+			}
+
+			node := &XMLNode{
+				Name:           t.Name.Local,
+				Namespace:      namespace,
+				Prefix:         t.Name.Space,
+				Attributes:     make(map[string]string),
+				NamespaceDecls: make(map[string]string),
+			}
+
+			// Process attributes
+			for _, attr := range t.Attr {
+				if attr.Name.Space == "xmlns" || attr.Name.Local == "xmlns" {
+					node.NamespaceDecls[attr.Name.Local] = attr.Value
+				} else {
+					attrNS := attr.Name.Space
+					if attrNS != "" {
+						if uri, ok := currentNS[attrNS]; ok {
+							attrNS = uri
+						}
+						node.Attributes[fmt.Sprintf("{%s}%s", attrNS, attr.Name.Local)] = attr.Value
+					} else {
+						node.Attributes[attr.Name.Local] = attr.Value
+					}
+				}
+			}
+
+			if len(stack) > 0 {
 				parent := stack[len(stack)-1]
 				parent.Children = append(parent.Children, node)
+			} else {
+				root = node
 			}
 			stack = append(stack, node)
+
 		case xml.EndElement:
-			if len(stack) > 0 {
-				stack = stack[:len(stack)-1]
-			}
+			stack = stack[:len(stack)-1]
+			nsStack = nsStack[:len(nsStack)-1]
+
 		case xml.CharData:
-			content := strings.TrimSpace(string(t))
-			if content != "" && len(stack) > 0 {
+			if len(stack) > 0 {
 				current := stack[len(stack)-1]
-				current.Content += content
+				current.Content += strings.TrimSpace(string(t))
 			}
 		}
 	}
 
-	if root == nil {
-		return nil, fmt.Errorf("empty or invalid XML document")
-	}
 	return root, nil
 }

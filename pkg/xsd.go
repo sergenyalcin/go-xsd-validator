@@ -7,24 +7,36 @@ import (
 
 // XSDSchema ore types for XML Schema representation
 type XSDSchema struct {
-	XMLName      xml.Name         `xml:"schema"`
-	Elements     []XSDElement     `xml:"element"`
-	ComplexTypes []XSDComplexType `xml:"complexType"`
-	SimpleTypes  []XSDSimpleType  `xml:"simpleType"`
+	XMLName            xml.Name `xml:"schema"`
+	TargetNS           string   `xml:"targetNamespace,attr"`
+	ElementFormDefault string   `xml:"elementFormDefault,attr"`
+	Xmlns              map[string]string
+	Elements           []XSDElement     `xml:"element"`
+	ComplexTypes       []XSDComplexType `xml:"complexType"`
+	SimpleTypes        []XSDSimpleType  `xml:"simpleType"`
 }
 
 type XSDElement struct {
 	Name        string          `xml:"name,attr"`
+	Namespace   string          `xml:"namespace,attr"`
 	Type        string          `xml:"type,attr"`
+	Ref         string          `xml:"ref,attr"`
 	MinOccurs   string          `xml:"minOccurs,attr"`
 	MaxOccurs   string          `xml:"maxOccurs,attr"`
 	ComplexType *XSDComplexType `xml:"complexType"`
 	SimpleType  *XSDSimpleType  `xml:"simpleType"`
 }
 
+type XSDElementRef struct {
+	Ref       string `xml:"ref,attr"`
+	MinOccurs string `xml:"minOccurs,attr"`
+	MaxOccurs string `xml:"maxOccurs,attr"`
+}
+
 type XSDComplexType struct {
 	Name       string         `xml:"name,attr"`
 	Sequence   *XSDSequence   `xml:"sequence"`
+	Choice     *XSDChoice     `xml:"choice"`
 	Attributes []XSDAttribute `xml:"attribute"`
 }
 
@@ -39,6 +51,13 @@ type XSDSequence struct {
 	Elements []XSDElement `xml:"element"`
 }
 
+type XSDChoice struct {
+	MinOccurs string       `xml:"minOccurs,attr"`
+	MaxOccurs string       `xml:"maxOccurs,attr"`
+	Choice    *XSDChoice   `xml:"choice"`
+	Elements  []XSDElement `xml:"element"`
+}
+
 type XSDAttribute struct {
 	Name       string         `xml:"name,attr"`
 	Type       string         `xml:"type,attr"`
@@ -49,26 +68,22 @@ type XSDAttribute struct {
 }
 
 type XSDRestriction struct {
-	Base           string           `xml:"base,attr"`
-	Pattern        []XSDPattern     `xml:"pattern"`
-	Enumeration    []XSDEnumeration `xml:"enumeration"`
-	Length         string           `xml:"length,attr"`
-	MinLength      string           `xml:"minLength,attr"`
-	MaxLength      string           `xml:"maxLength,attr"`
-	MinInclusive   string           `xml:"minInclusive,attr"`
-	MaxInclusive   string           `xml:"maxInclusive,attr"`
-	MinExclusive   string           `xml:"minExclusive,attr"`
-	MaxExclusive   string           `xml:"maxExclusive,attr"`
-	WhiteSpace     string           `xml:"whiteSpace,attr"`
-	TotalDigits    string           `xml:"totalDigits,attr"`
-	FractionDigits string           `xml:"fractionDigits,attr"`
+	Base           string     `xml:"base,attr"`
+	Pattern        []XSDValue `xml:"pattern"`
+	Enumeration    []XSDValue `xml:"enumeration"`
+	Length         XSDValue   `xml:"length"`
+	MinLength      XSDValue   `xml:"minLength"`
+	MaxLength      XSDValue   `xml:"maxLength"`
+	MinInclusive   XSDValue   `xml:"minInclusive"`
+	MaxInclusive   XSDValue   `xml:"maxInclusive"`
+	MinExclusive   XSDValue   `xml:"minExclusive"`
+	MaxExclusive   XSDValue   `xml:"maxExclusive"`
+	WhiteSpace     string     `xml:"whiteSpace,attr"`
+	TotalDigits    string     `xml:"totalDigits,attr"`
+	FractionDigits string     `xml:"fractionDigits,attr"`
 }
 
-type XSDPattern struct {
-	Value string `xml:"value,attr"`
-}
-
-type XSDEnumeration struct {
+type XSDValue struct {
 	Value string `xml:"value,attr"`
 }
 
