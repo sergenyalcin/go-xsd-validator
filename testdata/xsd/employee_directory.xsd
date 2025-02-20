@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+    <xs:simpleType name="phoneType">
+        <xs:restriction base="xs:string">
+            <xs:pattern value="\d{3}-\d{3}-\d{4}"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="departmentType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="Engineering"/>
+            <xs:enumeration value="Marketing"/>
+            <xs:enumeration value="Sales"/>
+            <xs:enumeration value="HR"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:element name="directory">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="employee" maxOccurs="unbounded">
+                    <xs:complexType>
+                        <xs:sequence>
+                            <xs:element name="name" type="xs:string"/>
+                            <xs:element name="department" type="departmentType"/>
+                            <xs:element name="phone" type="phoneType"/>
+                            <xs:element name="email" type="xs:string"/>
+                            <xs:element name="startDate" type="xs:date"/>
+                        </xs:sequence>
+                        <xs:attribute name="id" type="xs:positiveInteger" use="required"/>
+                    </xs:complexType>
+                </xs:element>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+</xs:schema>

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<purchaseOrder orderID="PO-2024-001" priority="high">
+    <orderDate>2024-02-20</orderDate>
+    <shipBy>2024-02-25</shipBy>
+    <customer customerID="12345">
+        <name>Acme Corporation</name>
+        <email>purchasing@acme.com</email>
+        <shippingAddress>
+            <street>123 Business Ave</street>
+            <city>Enterprise City</city>
+            <state>CA</state>
+            <zip>94105-1234</zip>
+        </shippingAddress>
+        <billingAddress>
+            <street>456 Finance Blvd</street>
+            <city>Enterprise City</city>
+            <state>CA</state>
+            <zip>94105</zip>
+        </billingAddress>
+    </customer>
+    <items>
+        <item sku="WX-12345">
+            <productName>High Performance Widget</productName>
+            <quantity>10</quantity>
+            <price>99.99</price>
+            <notes>Handle with care</notes>
+        </item>
+        <item sku="ZY-98765">
+            <productName>Premium Gadget</productName>
+            <quantity>5</quantity>
+            <price>149.99</price>
+        </item>
+    </items>
+    <specialInstructions>Please deliver during business hours only.</specialInstructions>
+</purchaseOrder>

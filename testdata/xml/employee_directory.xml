@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<directory>
+    <employee id="1">
+        <name>John Doe</name>
+        <department>Engineering</department>
+        <phone>555-123-4567</phone>
+        <email>john.doe@company.com</email>
+        <startDate>2022-01-15</startDate>
+    </employee>
+    <employee id="2">
+        <name>Jane Smith</name>
+        <department>Marketing</department>
+        <phone>555-987-6543</phone>
+        <email>jane.smith@company.com</email>
+        <startDate>2021-06-30</startDate>
+    </employee>
+</directory>

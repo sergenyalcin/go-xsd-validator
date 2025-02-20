@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+    <xs:simpleType name="SKUType">
+        <xs:restriction base="xs:string">
+            <xs:pattern value="[A-Z]{2}-\d{5}"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="stateType">
+        <xs:restriction base="xs:string">
+            <xs:length value="2"/>
+            <xs:pattern value="[A-Z]{2}"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="zipCodeType">
+        <xs:restriction base="xs:string">
+            <xs:pattern value="\d{5}(-\d{4})?"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:complexType name="addressType">
+        <xs:sequence>
+            <xs:element name="street" type="xs:string"/>
+            <xs:element name="city" type="xs:string"/>
+            <xs:element name="state" type="stateType"/>
+            <xs:element name="zip" type="zipCodeType"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="itemType">
+        <xs:sequence>
+            <xs:element name="productName" type="xs:string"/>
+            <xs:element name="quantity">
+                <xs:simpleType>
+                    <xs:restriction base="xs:positiveInteger">
+                        <xs:maxInclusive value="999"/>
+                    </xs:restriction>
+                </xs:simpleType>
+            </xs:element>
+            <xs:element name="price">
+                <xs:simpleType>
+                    <xs:restriction base="xs:decimal">
+                        <xs:fractionDigits value="2"/>
+                        <xs:minInclusive value="0.01"/>
+                    </xs:restriction>
+                </xs:simpleType>
+            </xs:element>
+            <xs:element name="notes" type="xs:string" minOccurs="0"/>
+        </xs:sequence>
+        <xs:attribute name="sku" type="SKUType" use="required"/>
+    </xs:complexType>
+
+    <xs:element name="purchaseOrder">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="orderDate" type="xs:date"/>
+                <xs:element name="shipBy" type="xs:date"/>
+                <xs:element name="customer">
+                    <xs:complexType>
+                        <xs:sequence>
+                            <xs:element name="name" type="xs:string"/>
+                            <xs:element name="email" type="xs:string"/>
+                            <xs:element name="shippingAddress" type="addressType"/>
+                            <xs:element name="billingAddress" type="addressType"/>
+                        </xs:sequence>
+                        <xs:attribute name="customerID" type="xs:positiveInteger" use="required"/>
+                    </xs:complexType>
+                </xs:element>
+                <xs:element name="items">
+                    <xs:complexType>
+                        <xs:sequence>
+                            <xs:element name="item" type="itemType" maxOccurs="unbounded"/>
+                        </xs:sequence>
+                    </xs:complexType>
+                </xs:element>
+                <xs:element name="specialInstructions" type="xs:string" minOccurs="0"/>
+            </xs:sequence>
+            <xs:attribute name="orderID" type="xs:string" use="required"/>
+            <xs:attribute name="priority" use="optional" default="normal">
+                <xs:simpleType>
+                    <xs:restriction base="xs:string">
+                        <xs:enumeration value="high"/>
+                        <xs:enumeration value="normal"/>
+                        <xs:enumeration value="low"/>
+                    </xs:restriction>
+                </xs:simpleType>
+            </xs:attribute>
+        </xs:complexType>
+    </xs:element>
+</xs:schema>
