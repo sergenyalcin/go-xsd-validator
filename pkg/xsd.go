@@ -7,10 +7,9 @@ import (
 
 // XSDSchema ore types for XML Schema representation
 type XSDSchema struct {
-	XMLName            xml.Name `xml:"schema"`
-	TargetNS           string   `xml:"targetNamespace,attr"`
-	ElementFormDefault string   `xml:"elementFormDefault,attr"`
-	Xmlns              map[string]string
+	XMLName            xml.Name         `xml:"schema"`
+	TargetNS           string           `xml:"targetNamespace,attr"`
+	ElementFormDefault string           `xml:"elementFormDefault,attr"`
 	Elements           []XSDElement     `xml:"element"`
 	ComplexTypes       []XSDComplexType `xml:"complexType"`
 	SimpleTypes        []XSDSimpleType  `xml:"simpleType"`
@@ -96,7 +95,7 @@ type XSDList struct {
 	ItemType string `xml:"itemType,attr"`
 }
 
-// Pattern cache to improve performance
+// PatternCache for performance
 type PatternCache struct {
 	patterns map[string]*regexp.Regexp
 }
@@ -105,20 +104,4 @@ func NewPatternCache() *PatternCache {
 	return &PatternCache{
 		patterns: make(map[string]*regexp.Regexp),
 	}
-}
-
-func (pc *PatternCache) GetPattern(pattern string) (*regexp.Regexp, error) {
-	if compiled, ok := pc.patterns[pattern]; ok {
-		return compiled, nil
-	}
-
-	// Convert XSD pattern to Go regex
-	goPattern := convertXSDPatternToGoRegex(pattern)
-	compiled, err := regexp.Compile(goPattern)
-	if err != nil {
-		return nil, err
-	}
-
-	pc.patterns[pattern] = compiled
-	return compiled, nil
 }

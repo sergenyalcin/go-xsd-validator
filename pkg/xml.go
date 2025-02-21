@@ -7,7 +7,9 @@ import (
 	"strings"
 )
 
-// XML node representation
+const xmlns = "xmlns"
+
+// XMLNode node representation of XML
 type XMLNode struct {
 	Name           string
 	Namespace      string
@@ -46,9 +48,9 @@ func ParseXML(r io.Reader) (*XMLNode, error) {
 
 			// Process namespace declarations
 			for _, attr := range t.Attr {
-				if attr.Name.Space == "xmlns" {
+				if attr.Name.Space == xmlns {
 					currentNS[attr.Name.Local] = attr.Value
-				} else if attr.Name.Local == "xmlns" {
+				} else if attr.Name.Local == xmlns {
 					currentNS[""] = attr.Value
 				}
 			}
@@ -78,7 +80,7 @@ func ParseXML(r io.Reader) (*XMLNode, error) {
 
 			// Process attributes
 			for _, attr := range t.Attr {
-				if attr.Name.Space == "xmlns" || attr.Name.Local == "xmlns" {
+				if attr.Name.Space == xmlns || attr.Name.Local == xmlns {
 					node.NamespaceDecls[attr.Name.Local] = attr.Value
 				} else {
 					attrNS := attr.Name.Space

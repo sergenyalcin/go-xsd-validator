@@ -1,0 +1,3 @@
+<Person xmlns="http://example.com/schema">
+    <Name>John Doe</Name>
+</Person>

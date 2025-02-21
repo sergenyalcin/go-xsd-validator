@@ -6,14 +6,14 @@ import (
 	"os"
 )
 
-// Validation result types
+// ValidationResult includes the results of the XML | XSD validation
 type ValidationResult struct {
 	Valid    bool     `json:"valid"`
 	Filename string   `json:"filename"`
 	Errors   []string `json:"errors,omitempty"`
 }
 
-// Output formatting
+// OutputResult is responsible on output formatting
 func (r *ValidationResult) OutputResult(format string) {
 	switch format {
 	case "json":

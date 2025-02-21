@@ -1,0 +1,11 @@
+<Root>
+    <Level1>
+        <Level2>
+            <Level3>
+                <Level4>
+                    <Value>Deeply Nested</Value>
+                </Level4>
+            </Level3>
+        </Level2>
+    </Level1>
+</Root>

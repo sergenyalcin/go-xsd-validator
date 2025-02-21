@@ -57,7 +57,7 @@ func TestXMLValidator(t *testing.T) {
 			xmlInput: `<?xml version="1.0" encoding="UTF-8"?><price>0</price>`,
 			xsdInput: `<?xml version="1.0" encoding="UTF-8"?><xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="price"><xs:simpleType><xs:restriction base="xs:decimal"><xs:minInclusive value="1"/><xs:maxInclusive value="100"/></xs:restriction></xs:simpleType></xs:element></xs:schema>`,
 			valid:    false,
-			errors:   []string{"value must be >= 1"},
+			errors:   []string{"invalid content in element 'price': value must be >= 1, got 0"},
 		},
 		{
 			name:     "Missing Child Element",

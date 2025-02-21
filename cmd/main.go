@@ -8,7 +8,6 @@ import (
 	"github.com/sergenyalcin/go-xsd-validator/pkg"
 )
 
-// Main function
 func main() {
 	xmlPath := flag.String("xml", "", "Path to XML file (required)")
 	xsdPath := flag.String("xsd", "", "Path to XSD schema file (required)")
@@ -19,18 +18,21 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
+	run(xsdPath, xmlPath, outputFormat)
+}
 
+func run(xsdPath, xmlPath, outputFormat *string) {
 	// Read XSD file
 	xsdFile, err := os.Open(*xsdPath)
 	if err != nil {
 		if _, err := fmt.Fprintf(os.Stderr, "Error opening XSD file: %v\n", err); err != nil {
 			panic(err)
 		}
+		os.Exit(1)
 	}
 	defer func(xsdFile *os.File) {
-		err := xsdFile.Close()
-		if err != nil {
-			panic(err)
+		if err := xsdFile.Close(); err != nil {
+			os.Exit(1)
 		}
 	}(xsdFile)
 
@@ -40,6 +42,7 @@ func main() {
 		if _, err := fmt.Fprintf(os.Stderr, "Error creating validator: %v\n", err); err != nil {
 			panic(err)
 		}
+		os.Exit(1)
 	}
 
 	// Read XML file
@@ -48,10 +51,10 @@ func main() {
 		if _, err := fmt.Fprintf(os.Stderr, "Error opening XML file: %v\n", err); err != nil {
 			panic(err)
 		}
+		os.Exit(1)
 	}
 	defer func(xmlFile *os.File) {
-		err := xmlFile.Close()
-		if err != nil {
+		if err := xmlFile.Close(); err != nil {
 			panic(err)
 		}
 	}(xmlFile)
@@ -62,7 +65,7 @@ func main() {
 		if _, err := fmt.Fprintf(os.Stderr, "Error during validation: %v\n", err); err != nil {
 			panic(err)
 		}
-		panic(err)
+		os.Exit(1)
 	}
 
 	// Output results
